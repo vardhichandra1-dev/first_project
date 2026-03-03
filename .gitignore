@@ -1,5 +1,11 @@
 # Environment variables (NEVER commit these)
 .env
+
+# OAuth tokens (NEVER commit these)
+token.pkl
+token.json
+token*.json
+token*.pkl
 .env.*
 *.env
 
