@@ -1,0 +1,15 @@
+langchain
+langgraph
+IPykernel
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+python-dotenv
+langchain_groq
+
+grandalf
+tavily-python
+streamlit
+plotly
+pandas
