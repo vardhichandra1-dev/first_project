@@ -1,4 +1,11 @@
-import agent_graph
+import sys
+import os
+
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.append(backend_dir)
+
+from graphs import agent_graph
 from dotenv import load_dotenv
 
 load_dotenv()

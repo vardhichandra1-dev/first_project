@@ -6,12 +6,14 @@ import os
 import base64
 from datetime import datetime
 
-# Add src to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add backend to path
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if backend_dir not in sys.path:
+    sys.path.append(backend_dir)
 
-from agent_graph import create_graph
-from google_services import GmailService
-from LLM_initiate import LLM_initiate
+from graphs.agent_graph import create_graph
+from rest.google_services import GmailService
+from llm_initiation.LLM_initiate import LLM_initiate
 
 st.set_page_config(page_title="Email Dashboard", page_icon="📊", layout="wide")
 
