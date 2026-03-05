@@ -11,6 +11,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 backend_dir = os.path.join(project_root, "backend")
 if backend_dir not in sys.path:
     sys.path.append(backend_dir)
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())
 
 from graphs.agent_graph import create_graph
 from rest.google_services import GmailService
