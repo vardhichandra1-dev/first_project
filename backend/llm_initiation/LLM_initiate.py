@@ -1,158 +1,178 @@
-from langchain_groq import ChatGroq
 import re
+import json
+from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
+
+# Valid Groq model – fast and capable
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# Categories used throughout the system
+EMAIL_CATEGORIES = ["OTP", "Banking", "Promotional", "Priority", "Social", "Spam"]
+
+# Categories that should be auto-deleted
+DELETABLE_CATEGORIES = {"Promotional", "Spam"}
+
+# Categories that trigger Telegram notification
+NOTIFY_CATEGORIES = {"OTP", "Banking", "Priority"}
+
+
+def _clean_llm_output(text: str) -> str:
+    """Strip markdown fences and <think> tags from LLM output."""
+    text = re.sub(r"```json", "", text)
+    text = re.sub(r"```", "", text)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    return text.strip()
+
 
 class LLM_initiate:
     def __init__(self):
-        self.llm = ChatGroq(model_name="openai/gpt-oss-120b")
-    
-    def get_llm(self):
-        return self.llm 
+        self.llm = ChatGroq(model_name=GROQ_MODEL)
 
-    def summarize_email(self, content: str) -> str:
-        """Summarizes the given email content."""
-        prompt = f"Please summarize the following email content concisely:\n\n{content}"
-        try:
-            response = self.llm.invoke(prompt)
-            return response.content
-        except Exception as e:
-            return f"Error accumulating summary: {str(e)}"
+    def get_llm(self):
+        return self.llm
 
     def get_prompt(self):
         return PromptTemplate.from_template("{email}")
 
+    # ------------------------------------------------------------------
+    # Intent routing
+    # ------------------------------------------------------------------
     def decide_intent(self, query: str) -> str:
-        """Decides if the query is about emails, general search, or chat."""
+        """Classify user intent: 'email', 'search', or 'chat'."""
         prompt = f"""
-        You are a router. Your job is to classify the user's intent into exactly one of three categories: 'email', 'search', or 'chat'.
+You are a router. Classify the user's intent into exactly one of: 'email', 'search', or 'chat'.
 
-        Definitions:
-        - 'email': User wants to read, summarize, fetch, check, or list their own emails.
-        - 'search': User is asking a fact-based question containing specific entities, news, or technical queries that requires external knowledge.
-        - 'chat': User is engaging in casual conversation, asking about your identity, greetings, or general open-ended non-factual questions (e.g., "tell me about you", "hello", "how are you").
+Definitions:
+- 'email': User wants to read, fetch, summarise, classify, check, or manage their emails.
+- 'search': User asks a factual/technical/news question requiring external knowledge.
+- 'chat': Casual conversation, greetings, identity questions, or open-ended non-factual questions.
 
-        User Query: "{query}"
+User Query: "{query}"
 
-        Instructions:
-        - Respond ONLY with the word 'email', 'search', or 'chat'.
-        - Do not explain your reasoning.
-        - Do not output punctuation.
-        """
+Rules:
+- Respond ONLY with the single word: email | search | chat
+- No punctuation, no explanation.
+"""
         try:
             response = self.llm.invoke(prompt)
-            content = response.content.strip()
-            # Remove <think> tags if present
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip().lower()
-            
+            content = _clean_llm_output(response.content).lower()
             if "email" in content:
                 return "email"
             elif "search" in content:
                 return "search"
-            
-            # Default to chat if not explicitly email or search
             return "chat"
-            
         except Exception:
-            return "chat" # Default to chat on error
+            return "chat"
 
-    def generate_chat_response(self, query: str) -> str:
-        """Generates a response for general chat."""
+    # ------------------------------------------------------------------
+    # Email parameter extraction
+    # ------------------------------------------------------------------
+    def extract_email_parameters(self, query: str) -> dict:
+        """Extract Gmail API fetch parameters from the user's query."""
         prompt = f"""
-        You are a helpful AI Assistant.
-        
-        User: {query}
-        
-        Respond naturally and helpfully to the user.
+You are a helper that extracts Gmail search parameters from a user query.
+
+User Query: "{query}"
+
+Instructions:
+1. Identify how many emails to fetch.
+   - If specified (e.g. "last 5 emails"), use that number.
+   - If "all" or "today's", use 20.
+   - Otherwise default to 5.
+   - Key: "max_results" (integer)
+
+2. Build a Gmail search query string.
+   - "today's mails"  → "newer_than:1d"
+   - "last week"      → "newer_than:7d"
+   - "unread"         → "is:unread"
+   - Combine as needed. Default: "is:unread"
+   - Key: "q" (string)
+
+Output ONLY valid JSON:
+{{
+    "max_results": <int>,
+    "q": "<string>"
+}}
+"""
+        try:
+            response = self.llm.invoke(prompt)
+            content = _clean_llm_output(response.content)
+            return json.loads(content)
+        except Exception as e:
+            print(f"[LLM] Error extracting email params: {e}")
+            return {"max_results": 5, "q": "is:unread"}
+
+    # ------------------------------------------------------------------
+    # Email summarisation
+    # ------------------------------------------------------------------
+    def summarize_email(self, content: str) -> str:
+        """Summarise a single email's content concisely."""
+        if not content:
+            return "No content available."
+        prompt = f"Summarise the following email in 2-3 sentences:\n\n{content}"
+        try:
+            response = self.llm.invoke(prompt)
+            return response.content
+        except Exception as e:
+            return f"Error generating summary: {str(e)}"
+
+    # ------------------------------------------------------------------
+    # Email classification (6 categories)
+    # ------------------------------------------------------------------
+    def classify_emails(self, emails: list) -> dict:
         """
+        Classify emails into one of 6 categories.
+
+        Returns: {email_id: category_string}
+        Categories: OTP | Banking | Promotional | Priority | Social | Spam
+        """
+        if not emails:
+            return {}
+
+        email_data = [
+            {"id": e.get("id"), "subject": e.get("subject", ""), "snippet": e.get("text", "")[:250]}
+            for e in emails
+        ]
+
+        prompt = f"""
+You are an expert email classifier. Classify each email into exactly one category.
+
+Categories:
+- OTP        : One-time passwords, verification codes, login codes
+- Banking    : Transaction alerts, bank statements, fund transfers, account notices
+- Promotional: Marketing, newsletters, discount offers, sale announcements
+- Priority   : Work emails, meeting requests, urgent personal messages, action required
+- Social     : LinkedIn, Facebook, Instagram, Twitter notifications
+- Spam       : Unsolicited junk, phishing attempts, irrelevant bulk mail
+
+Emails to classify:
+{json.dumps(email_data, indent=2)}
+
+Rules:
+- Return ONLY a JSON object mapping each email ID to its category.
+- Example: {{"abc123": "OTP", "def456": "Promotional"}}
+- Every email ID must appear exactly once.
+- Use only the exact category names listed above.
+"""
+        try:
+            response = self.llm.invoke(prompt)
+            content = _clean_llm_output(response.content)
+            return json.loads(content)
+        except Exception as e:
+            print(f"[LLM] Error classifying emails: {e}")
+            return {e_item["id"]: "Priority" for e_item in email_data}
+
+    # ------------------------------------------------------------------
+    # General chat
+    # ------------------------------------------------------------------
+    def generate_chat_response(self, query: str) -> str:
+        """Generate a natural chat response."""
+        prompt = f"""You are a helpful AI Email Assistant. Respond naturally and helpfully.
+
+User: {query}
+"""
         try:
             response = self.llm.invoke(prompt)
             return response.content
         except Exception as e:
             return f"Error generating response: {str(e)}"
-
-    def extract_email_parameters(self, query: str) -> dict:
-        """
-        Extracts email fetch parameters from the user's query.
-        Returns a dict with 'max_results' (int) and 'q' (str) for Gmail API.
-        """
-        prompt = f"""
-        You are a helper that extracts Gmail search parameters from a user query.
-        
-        User Query: "{query}"
-
-        Instructions:
-        1. Identify the number of emails the user wants to fetch.
-           - If specified (e.g., "last 5 emails", "review 3 emails"), use that number.
-           - If implied as "all" or "today's emails", use a reasonable limit like 20.
-           - If NOT specified, default to 5.
-           - Key: "max_results" (integer)
-
-        2. Construct a Gmail search query string (q parameter) if needed.
-           - "today's mails" -> "newer_than:1d"
-           - "last week" -> "newer_than:7d"
-           - "unread" -> "is:unread" (Always include is:unread unless user asks for all/old emails)
-           - Combine filters if needed (e.g., "is:unread newer_than:1d").
-           - If no specific time/status logic, default to "is:unread".
-           - Key: "q" (string)
-
-        Output JSON ONLY:
-        {{
-            "max_results": <int>,
-            "q": "<string>"
-        }}
-        """
-        try:
-            response = self.llm.invoke(prompt)
-            content = response.content.strip()
-            # Clean possible markdown code blocks
-            content = re.sub(r'```json', '', content)
-            content = re.sub(r'```', '', content)
-            # Remove <think> tags if present
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            
-            import json
-            return json.loads(content)
-        except Exception as e:
-            print(f"Error extracting email params: {e}")
-            return {"max_results": 5, "q": "is:unread"}
-
-    def classify_emails(self, emails: list) -> dict:
-        """
-        Classifies a list of emails into categories.
-        Returns a dict: {email_id: category}
-        Categories: ["Bank/Finance", "Promotional", "Social", "Work", "Personal"]
-        """
-        if not emails:
-            return {}
-
-        email_data = [{"id": e.get("id"), "snippet": e.get("text", "")[:200]} for e in emails]
-        prompt = f"""
-        You are an email classifier. Classify the following emails based on their snippets.
-        
-        Categories:
-        - Bank/Finance (Transaction alerts, statements, OTPs, bank offers)
-        - Promotional (Marketing, newsletters, sales, offers)
-        - Social (LinkedIn, Facebook, Instagram notifications)
-        - Work (Meeting invites, project discussion, internal comms)
-        - Personal (Family, friends, direct correspondence)
-
-        Emails:
-        {email_data}
-
-        Instructions:
-        - Return ONLY a JSON object mapping email ID to Category.
-        - Example: {{"123": "Work", "124": "Promotional"}}
-        """
-        try:
-            response = self.llm.invoke(prompt)
-            content = response.content.strip()
-            content = re.sub(r'```json', '', content)
-            content = re.sub(r'```', '', content)
-            content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-            
-            import json
-            return json.loads(content)
-        except Exception as e:
-            print(f"Error classifying emails: {e}")
-            # Fallback: all unknown
-            return {e["id"]: "Personal" for e in emails}
