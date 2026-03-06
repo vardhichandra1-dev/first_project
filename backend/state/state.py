@@ -4,7 +4,7 @@ class AgentState(TypedDict):
     # Gmail service instance
     service: Optional[Any]
 
-    # Emails fetched (list of dicts with id, text, subject, date)
+    # Emails fetched (rich dicts – from cache or live)
     emails: List[Dict]
 
     # Error message if any step fails
@@ -19,19 +19,21 @@ class AgentState(TypedDict):
     # Parameters extracted from user query for email fetch
     email_params: Optional[Dict]
 
+    # True → bypass cache and pull fresh from Gmail API
+    force_refresh: Optional[bool]
+
+    # True → emails were served from local cache (not live API)
+    from_cache: Optional[bool]
+
     # --- Classification ---
     # Maps email_id -> category (OTP, Banking, Promotional, Priority, Social, Spam)
     categories: Optional[Dict[str, str]]
 
     # --- Auto-deletion ---
-    # List of email IDs that were moved to trash
     deleted_ids: Optional[List[str]]
 
     # --- Notifications ---
-    # List of email IDs for which a Telegram alert was sent
     notified_ids: Optional[List[str]]
-
-    # Human-readable notification log entries
     notification_log: Optional[List[str]]
 
     # --- Search & Chat ---
