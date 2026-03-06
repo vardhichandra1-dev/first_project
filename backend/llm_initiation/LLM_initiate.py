@@ -176,3 +176,34 @@ User: {query}
             return response.content
         except Exception as e:
             return f"Error generating response: {str(e)}"
+
+    def answer_email_query(self, query: str, emails: list) -> str:
+        """Answer a user's specific query about the fetched emails."""
+        if not emails:
+            return "I couldn't find any relevant emails to answer your request."
+        
+        context_data = []
+        for e in emails[:5]:  # Provide top 5 for context to avoid overloading context window
+            context_data.append({
+                "from": e.get("sender_email", e.get("sender", "Unknown")),
+                "subject": e.get("subject", "No Subject"),
+                "date": e.get("date_iso", ""),
+                "content": (e.get("body") or e.get("snippet", ""))[:1000]
+            })
+            
+        prompt = f"""You are a helpful AI Email Assistant interpreting the following fetched emails to answer the user's query.
+
+User Query: "{query}"
+
+Fetched Emails Context:
+{json.dumps(context_data, indent=2)}
+
+Please provide a helpful, direct answer or explanation based ONLY on the above emails.
+If the user's query is just a generic command to fetch or update emails (e.g. "show emails", "fetch new messages"), respond by saying "Here are your requested emails:"
+"""
+        try:
+            response = self.llm.invoke(prompt)
+            return response.content
+        except Exception as e:
+            return f"Error analyzing emails: {str(e)}"
+

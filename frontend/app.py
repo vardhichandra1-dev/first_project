@@ -443,7 +443,11 @@ with st.sidebar:
                         notified   = final_state.get("notified_ids", [])
                         src        = "📂 local cache" if from_cache else "📡 Gmail API"
 
-                        answer  = f"**📬 Loaded {len(emails)} emails from {src}**\n\n"
+                        answer = ""
+                        if final_state.get("chat_response"):
+                            answer += f"🤖 **AI Insights:**\n{final_state['chat_response']}\n\n---\n\n"
+
+                        answer += f"**📬 Loaded {len(emails)} emails from {src}**\n\n"
                         answer += f"- 🗑️ Auto-deleted: **{len(deleted)}** (Promotional/Spam)\n"
                         answer += f"- 📲 Notified via Telegram: **{len(notified)}** (OTP/Banking/Priority)\n\n"
 

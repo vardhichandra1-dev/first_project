@@ -136,7 +136,12 @@ def summarize_emails_node(state: AgentState) -> AgentState:
         else:
             email["summary"] = f"[{cat}] — summary skipped."
 
-    return {**state, "emails": emails}
+    query = state.get("query", "")
+    chat_response = None
+    if query:
+        chat_response = llm.answer_email_query(query, emails)
+
+    return {**state, "emails": emails, "chat_response": chat_response}
 
 
 # ------------------------------------------------------------------
